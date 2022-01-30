@@ -41,3 +41,25 @@ We could have a stream for:
 - The data returned from API requests.
 - The chat windows.
 - etc.
+
+## What is a RxJS Observable?
+
+It is a new Push system for JavaScript. An Observable is a Producer of multiple values, "pushing" them to Observers (Consumers).
+
+```js
+// the dollar at the end means this variable is an rxjs Observable
+const inerval$ = interval(1000);
+```
+
+The `interval$` variable is not a stream of values yet, it is a definition for a stream of values. Now, we will create a pair of streams of values:
+
+```js
+inerval$.subscribe(val => console.log("stream 1 => " + val));
+inerval$.subscribe(val => console.log("stream 2 => " + val));
+```
+
+## Functions Described
+
+- interval
+- timer
+- fromEvent
