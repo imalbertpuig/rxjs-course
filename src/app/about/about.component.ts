@@ -1,4 +1,5 @@
 import { Component, OnInit, ViewEncapsulation } from '@angular/core';
+import { map } from 'rxjs/operators';
 
 @Component({
   selector: 'about',
@@ -11,5 +12,4 @@ export class AboutComponent implements OnInit {
 
   ngOnInit() {
   }
-
 }

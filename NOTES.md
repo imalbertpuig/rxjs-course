@@ -58,8 +58,241 @@ inerval$.subscribe(val => console.log("stream 1 => " + val));
 inerval$.subscribe(val => console.log("stream 2 => " + val));
 ```
 
-## Functions Described
+## Observable creation
 
-- interval
-- timer
-- fromEvent
+An Observable is different from a Promise.
+
+Whereas a Promise is executed once defined, an Observable does not trigger any request. It triggers the request in response to a subscription.
+
+In the creation process, you must respect the contract. It is formed by `observer.next()`, `observer.complete()` and `observer.error()`.
+
+```js
+const http$ = Observable.create(async (observer: Observer<Response>) => {
+  try {
+    const response = await fetch('http://localhost:9000/api/courses');
+    const body = await response.json();
+
+    observer.next(body);
+    observer.complete();
+  } catch (err) {
+    observer.error(err);
+  }
+});
+
+http$.subscribe(
+  (courses => console.log(courses)),
+  noop, // 'no operation' is the same than an empty callback () => {}, but more readable
+  () => console.log('completed')),
+);
+```
+
+In the example above, **why are we converting a Promise to an Observable?**
+
+The advantage is that we can use all the RxJS operators to easily combine our HTTP stream with other streams such as, for example, click handlers, timeouts, etc.
+
+## Imperative Design
+
+**It’s a common mistake** subscribe an observable directly and reserve the result in an external variable.
+
+It goes against the entire concept of manipulating and transforming your data in order to get different results, it means that you’re pretty much using promises to get your data and that’s all.
+
+The example below is not wrong at all, but it doesn’t follow the idea of reactive programming, it nests logic inside an observable instead of streaming the data.
+
+Let’s see a common example of how **you shouldn’t do**.
+
+```js
+// properties of the class
+tasksCompleted: Task[];
+tasksPending: Task[];
+
+// subscription inside a method
+tasks$.subscribe(
+   res => {
+        const data = res['payload'];
+
+        this.tasksCompleted = data.filter(task => task.completed);
+        this.tasksPending = data.filter(task => !task.completed);
+   }
+)
+```
+
+```html
+<h1>Completed Tasks</h1>
+
+<ul>
+   <li *ngFor="let task of tasksCompleted">{{ task.name }}<li>
+</ul>
+
+<h1>Pending Tasks</h1>
+
+<ul>
+   <li *ngFor="let task of tasksPending">{{ task.name }}<li>
+</ul>
+```
+
+Adding a lot of logic inside a subscribe call is that **it will not scale very well** in complexity.
+
+We will end up in the same situation of a _Callback Hell_ or _Pyramid of Doom_, and this is one of the things that we try to avoid using RxJS because it is an anti-pattern.
+
+<img src="img/callback-hell.png" />
+
+
+It can cause side effects to your data, and **you have to unsubscribe all your listeners** once Angular destroys the component.
+
+For this reason, avoid to subscribe your observable in the TypeScript file, unless you need to use the result in order to calculate something else.
+
+Even though you can use operators like `tap` to add this result into an external variable without subscribing it there.
+
+## Reactive Design
+
+Reactive programming is a better way to organise your observables, it outputs exactly the data that you are looking for. So **you don’t need subscribe**, create external variables or even face side effects to get your data.
+
+We simply define stream of values using the observables and **transform them using pipes**.
+
+Let’s see the best way to get the same result.
+
+```js
+// properties of the class
+tasksCompleted$: Observable<Task[]>;
+tasksPending$: Observable<Task[]>;
+
+const tasks$: Observable<Task[]> = httpTasks$.pipe(
+   map(res => res['payload']))
+);
+
+this.tasksCompleted$ = tasks$.pipe(
+   map(tasks => tasks.filter(task => task.completed))
+);
+
+this.tasksPending$ = tasks$.pipe(
+   map(tasks => tasks.filter(task => !task.completed))
+);
+```
+
+
+```html
+<h1>Completed Tasks</h1>
+
+<ul>
+   <li *ngFor="let task of tasksCompleted$ | async">{{ task.name }}<li>
+</ul>
+
+<h1>Pending Tasks</h1>
+
+<ul>
+   <li *ngFor="let task of tasksPending$ | async">{{ task.name }}<li>
+</ul>
+```
+
+Angular handles everything if you use the `async` pipe in the template. It subscribes to these observables and retrieves the data and also **unsubscribes from the observable** once the component gets destroyed.
+
+You don’t need to worry about leak of memory leaving a lot of subscribed observables activated in your components.
+
+The reactive approach looks more maintainable. We don't run into the case of nested subscribes and other problems we faced using the Imperative Design.
+
+Anyway, the example above has an issue. We are doing two HTTP requests for the same data using the `async` pipe in the template, and this can be fixed using another RxJS operator: `shareReplay()`.
+
+```js
+const tasks$: Observable<Task[]> = httpTasks$.pipe(
+   tap(() => console.log('HTTP request executed')),
+   map(res => res['payload'])),
+   shareReplay()
+);
+```
+
+## Most Common Functions
+
+- `interval()`
+- `timer()`
+- `fromEvent()`
+- `Observable.create()`
+- `map()`
+- `shareReplay()` => Makes sure that the HTTP response is passed on to each new subscription instead of executing, again, the same HTTP request.
+- `tap()` => Used to produce side effects in the observable chain. If we need to update something outside of the Observable chain, for example, updating a variable at the level of the component or using log statements like `console.log`.
+- `concat()`
+
+```js
+const source1$ = of(1, 2, 3);
+const source2$ = of(4, 5, 6);
+const source3$ = of(7, 8, 9);
+
+const result$ = concat(source1$, source2$, source3$);
+
+$result$.subscribe(console.log);
+```
+
+- `filter()`
+- `fromPromise()`
+- `concatMap()`: Waits for the previous Observable to complete before creating the next one
+
+```js
+ngOnInit() {
+  this.form = fb.group({
+    description: [course.description, Validators.required],
+    category: [course.category, Validators.required],
+  });
+
+  // Every request is done once the previous one is completed.
+  this.form.valueChanges
+    .pipe(
+      filter(() => this.form.valid), // only send the valid fields
+      concatMap(changes => this.saveCourse(changes)),
+    )
+    .subscribe();
+}
+
+saveCourse(changes) {
+  return fromPromise(fetch(`/api/course/${this,course.id}`, {
+    method: 'PUT',
+    body: JSON.stringify(changes),
+    headers: {
+      'content-type': 'application/json',
+    }
+  }));
+}
+```
+
+- `merge()`: The merge strategy is ideal for performing long running operations in parallel and getting the results of each of the operations combined.
+
+```js
+ngOnInit() {
+  const interval1$ = interval(1000); // 1, 2, 3... every second
+
+  const interval2$ = interval1$.pipe(val => val * 10); // 10, 20, 30... every second
+
+  const result$ = merge(interval1$, interval2$);
+
+  result$.subscribe(console.log); // 0 0, 1 10, 2 20, 3 30... every second
+}
+```
+
+- `mergeMap()`: Creates an Observable immediately for any source item, all previous Observables are kept alive. Note `flatMap` is an alias for mergeMap and `flatMap` will be removed in RxJS 8.
+- `exhaustMap()`: Source items are ignored while the previous Observable is not completed.
+
+```js
+ngAfterViewInit() {
+  /* Avoids multiple requests every time the user clicks on #saveButton.
+   * Until the previous Observable is not completed, the next one is not fired.
+   * In this case, it is a better choice than concatMap because concatMap triggers
+   * all the requests.
+   */
+  fromEvent(this.saveButton.nativeElement, 'click')
+    .pipe(
+      // concatMap(() => this.saveCourse(this.form.value))
+      exhaustMap(() => this.saveCourse(this.form.value))
+    )
+    .subscribe();
+}
+```
+
+## Versus
+
+### concat vs concatMap
+
+The main difference between them is that `concatMap` accepts as a parameter a function that is invoked for every item from its source and that **returns an inner Observable**, mapping each item from its source to an Observable. `concatMap` then calls its callback only when the previous inner Observables completes.
+
+`concat` just accepts a list of Observables and subscribes to them one after another when the previous Observable completes.
+
+### concat vs merge
+
+`merge` can interleave the outputs, while `concat` will first wait for earlier streams to finish before processing later streams.
