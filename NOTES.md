@@ -204,12 +204,12 @@ const tasks$: Observable<Task[]> = httpTasks$.pipe(
 
 - `interval()`
 - `timer()`
-- `fromEvent()`
+- `fromEvent()` => Creates an Observable that emits events of a specific type coming from the given event target. The target can be the DOM EventTarget, Node.js EventEmitter, JQuery-like event target, NodeList or HTMLCollection to attach the event handler to.
 - `Observable.create()`
 - `map()`
 - `shareReplay()` => Makes sure that the HTTP response is passed on to each new subscription instead of executing, again, the same HTTP request.
 - `tap()` => Used to produce side effects in the observable chain. If we need to update something outside of the Observable chain, for example, updating a variable at the level of the component or using log statements like `console.log`.
-- `concat()`
+- `concat()` => You can think of concat like a line at a ATM, the next transaction (subscription) cannot start until the previous completes!
 
 ```js
 const source1$ = of(1, 2, 3);
@@ -223,7 +223,7 @@ $result$.subscribe(console.log);
 
 - `filter()`
 - `fromPromise()`
-- `concatMap()`: Waits for the previous Observable to complete before creating the next one
+- `concatMap()` => Waits for the previous Observable to complete before creating the next one.
 
 ```js
 ngOnInit() {
@@ -252,7 +252,7 @@ saveCourse(changes) {
 }
 ```
 
-- `merge()`: The merge strategy is ideal for performing long running operations in parallel and getting the results of each of the operations combined.
+- `merge()` => The merge strategy is ideal for performing long running operations in parallel and getting the results of each of the operations combined.
 
 ```js
 ngOnInit() {
@@ -266,8 +266,8 @@ ngOnInit() {
 }
 ```
 
-- `mergeMap()`: Creates an Observable immediately for any source item, all previous Observables are kept alive. Note `flatMap` is an alias for mergeMap and `flatMap` will be removed in RxJS 8.
-- `exhaustMap()`: Source items are ignored while the previous Observable is not completed.
+- `mergeMap()` => Creates an Observable immediately for any source item, all previous Observables are kept alive. Note `flatMap` is an alias for mergeMap and `flatMap` will be removed in RxJS 8.
+- `exhaustMap()` => Source items are ignored while the previous Observable is not completed.
 
 ```js
 ngAfterViewInit() {
@@ -285,6 +285,24 @@ ngAfterViewInit() {
 }
 ```
 
+- `debounceTime()` => Emits a notification from the source Observable only after a particular time span has passed without another source emission.
+- `distinctUntilChanged()` => If two consecutive values are exactly the same, we oly want to emit one value.
+- `switchMap()` => Projects each source value to an Observable whic is merged in the output Observable, emitting values only from the most recently projected Observable. That means, it's going to unsubscribe from the current observable if exists a new one. Then, it will switch to this new one until completes. This process can be repeated _n_ times.
+
+## Unsubscribe an Observable
+
+It is important to unsubscribe all the observables that we create.
+
+```js
+const interval1$ = interval(1000);
+const sub = interval1$.subscribe(console.log);
+setTimeout(() => sub.unsubscribe(), 5000);
+```
+
+Take a look to the `AbortController`.
+
+The `AbortController` interface represents a controller object that **allows you to abort one or more Web requests** as and when desired.
+
 ## Versus
 
 ### concat vs concatMap
@@ -296,3 +314,25 @@ The main difference between them is that `concatMap` accepts as a parameter a fu
 ### concat vs merge
 
 `merge` can interleave the outputs, while `concat` will first wait for earlier streams to finish before processing later streams.
+
+### Promise vs Observable
+
+Both the Promise and Observable are used to handle async activity in JavaScript. While an Observable can do everything a Promise can, the reverse is not true.
+
+For example, an Observable can emit multiple values over time. A Promise only resolves once. Here some differences:
+
+- **Observables aren't native to JavaScript** but Promises are.
+
+```js
+import { Observable } from 'rxjs'
+let myObservable = new Observable()
+
+let myPromise = new Promise((reject, resolve) => resolve(1));
+```
+- **A Promise can't be canceled.** You can cancel an observable by unsubscribing. You can't cancel a Promise.
+- **Observables can emit multiple values.** Observables emit streams of data over time. Promises reject/resolve a single event. 
+
+While Observables are seemingly "better" for any use case, there are times where a Promise is more appropriate, especially when your application is async by nature. So, use Promise instead of an Observable, when:
+
+- You need to handle the (future response) event no matter what (no unsubscribe, no cancel: after you subscribe, there will be an answer, 100%, and you will have to handle it, 100%, the code will get executed).
+- One Subscription = One Event handling: there will be only one event from the source, so the future response and the completition is the same event.
