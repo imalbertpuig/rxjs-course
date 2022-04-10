@@ -288,6 +288,23 @@ ngAfterViewInit() {
 - `debounceTime()` => Emits a notification from the source Observable only after a particular time span has passed without another source emission.
 - `distinctUntilChanged()` => If two consecutive values are exactly the same, we oly want to emit one value.
 - `switchMap()` => Projects each source value to an Observable whic is merged in the output Observable, emitting values only from the most recently projected Observable. That means, it's going to unsubscribe from the current observable if exists a new one. Then, it will switch to this new one until completes. This process can be repeated _n_ times.
+- `startWith()` => First emits its arguments in order, and then any emissions from the source.
+
+```js
+import { timer } from 'rxjs';
+import { startWith, map } from 'rxjs/operators';
+
+timer(1000)
+  .pipe(
+    map(() => 'timer emit'),
+    startWith('timer start')
+  )
+  .subscribe(x => console.log(x));
+
+// results:
+// "timer start"
+// "timer emit"
+```
 
 ## Unsubscribe an Observable
 
@@ -302,6 +319,68 @@ setTimeout(() => sub.unsubscribe(), 5000);
 Take a look to the `AbortController`.
 
 The `AbortController` interface represents a controller object that **allows you to abort one or more Web requests** as and when desired.
+
+## Error Handler Strategy
+
+### 1. The Catch and Replace Error Handling Strategy
+
+Common scenario is when we want to hide the error and return data anyway.
+
+- `catchError()` => It's simply a function that takes in an input Observable, and outputs an Output Observable.
+
+```js
+const tasks$: Observable<Task[]> = httpTasks$.pipe(
+   tap(() => console.log('HTTP request executed')),
+   map(res => res['payload'])),
+   shareReplay(),
+   catchError(err => of([])
+);
+```
+
+### 2. The Catch and Rethrow Error Handling Strategy
+
+Common scenario is when we want to show a toast message for the user and to catch the error with the error handler of the system.
+
+- `throwError` => Will create an observable that errors out immediately with this error without ever emitting any value.
+- `finalize` => It is going to be executed when these observable here completes or when it arrives out.
+
+```js
+const tasks$: Observable<Task[]> = httpTasks$.pipe(
+   catchError(err => {
+       console.error(err);
+       showToast('Error occurred');
+
+       // in this case, Angular will catch the error
+       return throwError(err);
+   }),
+   finalize(() => console.log('Finalize executed...')),
+   tap(() => console.log('HTTP request executed')),
+   map(res => res['payload'])),
+   shareReplay()
+);
+```
+
+### 3. The Retry Error Handling Strategy
+
+Common scenario is when we attempt a weighted request, and that request might sometimes fail due to excessive load on the server. But sometimes it might succeed if we retry after a couple of seconds.
+
+- `retryWhen()` => This is an Observable that is going to emit an error each time that stream that we are retrying throws an error, whenever the HTTP stream throws an error the stream will finish. It will not complete successfully. This method creates a brand new stream (a brand new HTTP in this case) and it's going to subscribe to that new stream and it will do that successfully until the stream does not error out.
+- `delatyWhen()` => Delays the emission of items from the source Observable by a given time span determined by the emissions of another Observable..
+- `timer()` => Create an Observable that emits a particular item after a given delay.
+
+```js
+const tasks$: Observable<Task[]> = httpTasks$.pipe(
+   tap(() => console.log('HTTP request executed')),
+   map(res => res['payload'])),
+   shareReplay(),
+   // retryWhen(errors => errors) // immediately retry
+   retryWhen(errors => errors.pipe(
+       delayWhen(() => timer(2000))
+   ))
+);
+```
+
+Source: https://blog.angular-university.io/rxjs-error-handling/
 
 ## Versus
 
@@ -336,3 +415,190 @@ While Observables are seemingly "better" for any use case, there are times where
 
 - You need to handle the (future response) event no matter what (no unsubscribe, no cancel: after you subscribe, there will be an answer, 100%, and you will have to handle it, 100%, the code will get executed).
 - One Subscription = One Event handling: there will be only one event from the source, so the future response and the completition is the same event.
+
+### Throttling vs Debouncing
+
+- `throttleTime()` => **Throttling** is a way to limit the number of times a function can be called. Perform a function, then drop all the function calls until a certain period of time.
+- `throttle()` => It's like `throttleTime`, but the silencing duration is determined by a second Observable.
+- `debounceTime()` => **Debouncing** is a way to delay the execution of a function to a later period until there is some ongoing action
+
+## Subject
+
+An RxJS Subject is a special type of Observable that **allows values to be multicasted to many Observers**. While plain Observables are unicast (each subscribed Observer owns an independent execution of the Observable), Subjects are multicast.
+
+A Subject is like an Observable, but can multicast to many Observers. **Subjects are like EventEmitters**: they maintain a registry of many listeners.
+
+**Every Subject is an Observable.** Given a Subject, you can subscribe to it, providing an Observer, which will start receiving values normally. From the perspective of the Observer, it cannot tell whether the Observable execution is coming from a plain unicast Observable or a Subject.
+
+Internally to the Subject, subscribe does not invoke a new execution that delivers values. It simply registers the given Observer in a list of Observers, similarly to how addListener usually works in other libraries and languages.
+
+**Every Subject is an Observer.** It is an object with the methods next(v), error(e), and complete(). To feed a new value to the Subject, just call next(theValue), and it will be multicasted to the Observers registered to listen to the Subject.
+
+```js
+import { Subject } from 'rxjs';
+
+const subject = new Subject<number>();
+
+subject.subscribe({
+  next: (v) => console.log(`observerA: ${v}`)
+});
+subject.subscribe({
+  next: (v) => console.log(`observerB: ${v}`)
+});
+
+subject.next(1);
+subject.next(2);
+
+// Logs:
+// observerA: 1
+// observerB: 1
+// observerA: 2
+// observerB: 2
+```
+
+Since a Subject is an Observer, this also means you may provide a Subject as the argument to the subscribe of any Observable, like the example below shows:
+
+```js
+import { Subject, from } from 'rxjs';
+
+const subject = new Subject<number>();
+
+subject.subscribe({
+  next: (v) => console.log(`observerA: ${v}`)
+});
+subject.subscribe({
+  next: (v) => console.log(`observerB: ${v}`)
+});
+
+const observable = from([1, 2, 3]);
+
+observable.subscribe(subject); // You can subscribe providing a Subject
+
+// Logs:
+// observerA: 1
+// observerB: 1
+// observerA: 2
+// observerB: 2
+// observerA: 3
+// observerB: 3
+```
+
+A multicasted Observable uses a Subject under the hood to make multiple Observers see the same Observable execution.
+
+```js
+import { from, Subject } from 'rxjs';
+import { multicast } from 'rxjs/operators';
+
+const source = from([1, 2, 3]);
+const subject = new Subject();
+const multicasted = source.pipe(multicast(subject));
+
+// These are, under the hood, `subject.subscribe({...})`:
+multicasted.subscribe({
+  next: (v) => console.log(`observerA: ${v}`)
+});
+multicasted.subscribe({
+  next: (v) => console.log(`observerB: ${v}`)
+});
+
+// This is, under the hood, `source.subscribe(subject)`:
+multicasted.connect();
+```
+
+Anyway, it's better to as much as possible create our observables using, for example, `Observable.create` or by using some of the many methods available in RxJS: `fromEvent()`, `fromPromise()`, etc.
+
+However if some of those methods are not convenient or if we run into a source of data that is not easily transformable into an observable, or if we are doing the multicasting of one value to multiple separate observable consumers, then we might want to look into the notion of Subject.
+
+```js
+const subject = new Subject();
+
+// this observable is emitting the values of the subject
+const series$ = subject.asObservable();
+
+series$.subscribe(console.log);
+
+subject.next(1);
+subject.next(2);
+subject.next(3);
+subject.complete();
+
+// Logs:
+// 1
+// 2
+// 3
+```
+
+Definetly, we should try to use subjects as little as possible.
+
+## BehaviorSubject
+
+A variant of Subject that requires an initial value and emits its current value whenever it is subscribed to.
+
+In the next example, we are going to subscribe to the subject and we weill receive new values that are made after the subscription, but we will not get access to the previously emitted values.
+
+The Subject here by default has no memory.
+
+```js
+const subject = new Subject();
+
+// this observable is emitting the values of the subject
+const series$ = subject.asObservable();
+
+series$.subscribe(val => console.log("early sub:" + val));
+
+subject.next(1);
+subject.next(2);
+subject.next(3);
+
+setTimeout(() => {
+  series$.subscribe(val => console.log("late sub:" + val));
+  subject.next(4);
+}, 3000);
+
+// Logs: It takes only upcoming values
+// early sub: 1
+// early sub: 2
+// early sub: 3
+// early sub: 4
+// late sub: 4
+```
+
+Here it comes `BehaviorSubject`. It is similar to the plan Subject but is also supports late subscriptions.
+
+```js
+const subject = new BehaviorSubject(0);
+
+// this observable is emitting the values of the subject
+const series$ = subject.asObservable();
+
+series$.subscribe(val => console.log("early sub:" + val));
+
+subject.next(1);
+subject.next(2);
+subject.next(3);
+
+setTimeout(() => {
+  series$.subscribe(val => console.log("late sub:" + val));
+  subject.next(4);
+}, 3000);
+
+// Logs: It takes one previous value and upcoming values
+// early sub: 0
+// early sub: 1
+// early sub: 2
+// early sub: 3
+// late sub: 3
+// early sub: 4
+// late sub: 4
+```
+
+Here are more examples of similar Subjects.
+
+|                   | **Each next subscribers receive...**           |
+|-------------------|------------------------------------------------|
+| `Subject`         | ...only upcoming values                        |
+| `BehaviorSubject` | ...one previous value and upcoming values      |
+| `ReplaySubject`   | ...all previous values and upcoming values     |
+| `AsyncSubject`    | ...the latest value when the stream will close |
+
+In Angular, subjects are a great way to communicate components between them. It is called the **Store Service Pattern**.
